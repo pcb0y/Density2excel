@@ -242,31 +242,65 @@ def update_excel_with_detection_results(filename, product_model, detect_data):
     :param product_model: 产品型号
     :param detect_data: 检测数据字典
     """
+    workbook = None
     try:
-        # 加载Excel文件
         workbook = load_workbook(filename)
         sheet = workbook.active
-        
-        # 遍历所有行，找到匹配的产品型号
+
+        target_product = str(product_model).strip() if product_model is not None else ""
+        detection_time = detect_data.get("检测时间")
+        if detection_time is None:
+            detection_time = detect_data.get("测试时间")
+
+        updated = False
         for row in sheet.iter_rows(min_row=2):
-            if row[3].value == product_model:
-                # 更新检测结果
-                row[1].value = detect_data["检测时间"]  # 检测时间
-                row[5].value = detect_data["密度1"]  # 密度1
-                row[6].value = detect_data["密度2"]  # 密度2
-                row[7].value = detect_data["密度3"]  # 密度3
-                row[8].value = detect_data["密度4"]  # 密度4
-                row[9].value = detect_data["密度5"]  # 密度5
-                row[10].value = detect_data["平均值"]  # 平均值
+            cell_value = row[3].value
+            current_product = str(cell_value).strip() if cell_value is not None else ""
+            if current_product == target_product and current_product:
+                row[1].value = detection_time
+                row[5].value = detect_data.get("密度1")
+                row[6].value = detect_data.get("密度2")
+                row[7].value = detect_data.get("密度3")
+                row[8].value = detect_data.get("密度4")
+                row[9].value = detect_data.get("密度5")
+                row[10].value = detect_data.get("平均值")
+                updated = True
                 break
-        
-        # 保存文件
+
+        if not updated and target_product:
+            sheet.append([
+                detect_data.get("来样时间", ""),
+                detection_time,
+                detect_data.get("机台号", ""),
+                target_product,
+                detect_data.get("班次", ""),
+                detect_data.get("密度1"),
+                detect_data.get("密度2"),
+                detect_data.get("密度3"),
+                detect_data.get("密度4"),
+                detect_data.get("密度5"),
+                detect_data.get("平均值"),
+            ])
+
         workbook.save(filename)
-        
+
     except Exception as e:
         print(f"更新Excel文件错误: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        try:
+            if workbook is not None:
+                workbook.close()
+        except Exception:
+            pass
+
+
+def update_excel_with_test_results(filename, product_model, test_data):
+    detection_data = dict(test_data) if test_data is not None else {}
+    if "检测时间" not in detection_data and "测试时间" in detection_data:
+        detection_data["检测时间"] = detection_data.get("测试时间")
+    return update_excel_with_detection_results(filename, product_model, detection_data)
 
 
 def main():
@@ -274,23 +308,22 @@ def main():
     config = configparser.ConfigParser()
     config_file = "config.ini"
     
+    serial_port = "COM2"
+    baudrate = 9600
+    bytesize = 7
+    stopbits = 1
+    parity = 'NONE'
+    timeout = 2
+
     if os.path.exists(config_file):
         config.read(config_file)
-        serial_port = config['SerialConfig']['port']
-        baudrate = int(config['SerialConfig']['baudrate'])
-        bytesize = int(config['SerialConfig']['bytesize'])
-        stopbits = float(config['SerialConfig']['stopbits'])
-        parity = config['SerialConfig']['parity']
-        timeout = float(config['SerialConfig']['timeout'])
-    else:
-        # 使用默认值
-        serial_port = "COM2"  # Windows示例
-        # serial_port = "/dev/ttyUSB0"  # Linux示例
-        baudrate = 9600
-        bytesize = 7
-        stopbits = 1
-        parity = 'NONE'
-        timeout = 2
+        if config.has_section("SerialConfig"):
+            serial_port = config["SerialConfig"].get("port", serial_port)
+            baudrate = int(config["SerialConfig"].get("baudrate", str(baudrate)))
+            bytesize = int(config["SerialConfig"].get("bytesize", str(bytesize)))
+            stopbits = float(config["SerialConfig"].get("stopbits", str(stopbits)))
+            parity = config["SerialConfig"].get("parity", parity)
+            timeout = float(config["SerialConfig"].get("timeout", str(timeout)))
     
     excel_filename = "density_data.xlsx"
     
@@ -364,7 +397,7 @@ def main():
             # 准备测试数据
             test_data = {
                 "来样时间": sample_time,
-                "测试时间": test_time,
+                "检测时间": test_time,
                 "机台号": machine_id,
                 "产品型号": product_model,
                 "班次": shift,
@@ -943,6 +976,15 @@ class DensityDetectGUI:
         self.status_label.config(text="加载中")
         
         try:
+            if not self.excel_filename or not os.path.exists(self.excel_filename):
+                for item in self.product_list.get_children():
+                    self.product_list.delete(item)
+                self.product_info_list = []
+                self.current_product_index = 0
+                self.log_message("未找到Excel文件，请先选择一个.xlsx文件")
+                self.status_label.config(text="就绪")
+                return
+
             self.product_info_list = read_product_models_from_excel(self.excel_filename)
             
             # 清空产品列表
@@ -1147,7 +1189,7 @@ class DensityDetectGUI:
         except Exception as e:
             self.root.after(0, messagebox.showerror, "测试错误", f"测试过程中发生错误: {str(e)}")
             self.root.after(0, self.log_message, f"测试错误: {str(e)}")
-            self.root.after(0, self.stop_test)
+            self.root.after(0, self.stop_detection)
     
     def stop_detection(self):
         """停止检测"""

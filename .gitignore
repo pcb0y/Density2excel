@@ -13,3 +13,5 @@ env/
 
 build/
 dist/
+
+*.spec
