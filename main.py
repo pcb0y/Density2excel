@@ -121,31 +121,19 @@ def extract_density_value(data):
     :param data: 串口读取的原始数据字符串
     :return: 提取到的密度值（浮点数），提取失败返回None
     """
-    # 使用更灵活的正则表达式匹配密度值
-    # 匹配 "Density" 或 "density" 后跟冒号和数值
-    pattern = r'[Dd]ensity\s*:\s*(\d+\.\d+)\s*'
-    match = re.search(pattern, data)
-
-    if match:
+    primary = re.search(r'(?mi)^\s*Density\s*:\s*([+-]?\d+(?:\.\d+)?)', data)
+    if primary:
         try:
-            density_value = float(match.group(1))
-            return density_value
+            return float(primary.group(1))
         except ValueError:
-            print("密度值转换为浮点数失败")
             return None
-    else:
-        # 如果未找到Density关键字，尝试直接提取所有浮点数
-        number_pattern = r'(\d+\.\d+)'
-        numbers = re.findall(number_pattern, data)
-        if numbers:
-            try:
-                # 返回第一个匹配的浮点数
-                return float(numbers[0])
-            except ValueError:
-                print("密度值转换为浮点数失败")
-                return None
-        print("未找到密度值")
-        return None
+    fallback = re.findall(r'(?mi)^\s*(?!Ref\.)[^\n]*\b([+-]?\d+(?:\.\d+)?)\s*g\s*/\s*ccm\b', data)
+    if fallback:
+        try:
+            return float(fallback[-1])
+        except ValueError:
+            return None
+    return None
 
 
 def write_to_excel(data, filename="density_data.xlsx"):
@@ -731,6 +719,7 @@ class DensityDetectGUI:
         self.detecting = False
         self.detect_thread = None
         self.auto_mode = False  # 全自动模式标志
+        self.test_count_var = tk.IntVar(value=5)
         
         # 创建界面组件
         self.create_widgets()
@@ -841,6 +830,10 @@ class DensityDetectGUI:
             foreground=[("active", self.mac_colors["text"])]
         )
         self.auto_mode_check.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(control_frame, text="检测次数:").pack(side=tk.LEFT, padx=(20,5))
+        self.test_count_combo = ttk.Combobox(control_frame, textvariable=self.test_count_var, values=[1,2,3,4,5], width=5)
+        self.test_count_combo.pack(side=tk.LEFT, padx=5)
         
         # 串口配置
         serial_frame = ttk.LabelFrame(control_frame, text="串口配置", padding="5")
@@ -1045,9 +1038,6 @@ class DensityDetectGUI:
         self.log_message(f"开始检测产品: {product_model}")
         self.status_label.config(text="检测中")
         
-        # 清空提示信息
-        self.root.after(1000, lambda: self.prompt_label.config(text=""))
-        
         # 启动检测线程
         self.detect_thread = threading.Thread(target=self.run_detection)
         self.detect_thread.daemon = True
@@ -1098,7 +1088,17 @@ class DensityDetectGUI:
             density_values = []
             detect_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            for detect_num in range(1, 6):
+            total = self.test_count_var.get()
+            try:
+                total = int(total)
+            except:
+                total = 5
+            if total < 1:
+                total = 1
+            if total > 5:
+                total = 5
+            
+            for detect_num in range(1, total + 1):
                 if not self.detecting:
                     break
                 
