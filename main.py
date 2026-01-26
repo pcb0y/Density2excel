@@ -12,99 +12,48 @@ import threading
 import configparser
 
 
-def read_serial_data(port, baudrate=9600, bytesize=8, stopbits=serial.STOPBITS_ONE, parity=serial.PARITY_NONE, timeout=3):
+VERSION = "v1.1"
+
+
+def read_serial_data(ser_connection, timeout=3):
     """
-    从COM口读取数据
-    :param port: 串口名称，如COM3（Windows）或/dev/ttyUSB0（Linux）
-    :param baudrate: 波特率
-    :param bytesize: 数据位
-    :param stopbits: 停止位
-    :param parity: 校验位
+    从已打开的串口对象读取数据
+    :param ser_connection: 已打开的serial.Serial对象
     :param timeout: 超时时间
     :return: 读取到的串口数据字符串
     """
-    # 转换停止位
-    if stopbits == 1:
-        stopbits = serial.STOPBITS_ONE
-    elif stopbits == 1.5:
-        stopbits = serial.STOPBITS_ONE_POINT_FIVE
-    elif stopbits == 2:
-        stopbits = serial.STOPBITS_TWO
-    
-    # 转换校验位
-    if parity == 'NONE':
-        parity = serial.PARITY_NONE
-    elif parity == 'ODD':
-        parity = serial.PARITY_ODD
-    elif parity == 'EVEN':
-        parity = serial.PARITY_EVEN
     try:
-        # 初始化串口，增加流控制设置
-        ser = serial.Serial(
-            port=port,
-            baudrate=baudrate,
-            parity=parity,
-            stopbits=stopbits,
-            bytesize=bytesize,
-            timeout=timeout,
-            xonxoff=False,  # 禁用软件流控制
-            rtscts=False,   # 禁用硬件流控制
-            dsrdtr=False,   # 禁用DSR/DTR流控制
-            writeTimeout=2
-        )
+        if ser_connection is None or not ser_connection.is_open:
+            return ""
 
-        # 清空输入缓冲区，确保读取最新数据
-        ser.flushInput()
+        # 注意：不使用 flushInput()，防止在打开串口瞬间误删刚刚到达的数据
+        # ser.flushInput()
         
         # 读取串口数据
         data = ""
-        lines_read = 0
-        max_lines = 10  # 增加最大读取行数，提高兼容性
-        line_timeout = 0.5  # 每行读取的超时时间
-        
-        # 尝试读取max_lines行数据，或直到超时
         start_time = time.time()
-        while time.time() - start_time < timeout and lines_read < max_lines:
-            line_start_time = time.time()
-            line_data = b""
-            
-            # 读取一行数据，处理超时
-            while time.time() - line_start_time < line_timeout:
-                if ser.in_waiting > 0:
-                    byte = ser.read(1)
-                    if byte == b'\n':
-                        break
-                    line_data += byte
-                else:
-                    time.sleep(0.01)  # 短暂休眠，减少CPU占用
-            
-            # 解码并处理读取到的行
-            if line_data:
-                line = line_data.decode('utf-8', errors='ignore').strip()
-                if line:
-                    data += line + "\n"
-                    lines_read += 1
-                    # 如果已经找到密度数据，可以提前返回
-                    if "Density" in line:
-                        # 再读取1-2行，确保获取完整数据
-                        for _ in range(2):
-                            if ser.in_waiting > 0:
-                                extra_line = ser.readline().decode('utf-8', errors='ignore').strip()
-                                if extra_line:
-                                    data += extra_line + "\n"
-                    
-        # 关闭串口前检查是否还有剩余数据
-        if ser.in_waiting > 0:
-            remaining_data = ser.read(ser.in_waiting).decode('utf-8', errors='ignore').strip()
-            if remaining_data:
-                data += remaining_data + "\n"
         
-        ser.close()
+        # 循环读取直到超时
+        while time.time() - start_time < timeout:
+            if ser_connection.in_waiting > 0:
+                # 读取缓冲区所有可用数据
+                chunk = ser_connection.read(ser_connection.in_waiting).decode('utf-8', errors='ignore')
+                if chunk:
+                    data += chunk
+                    
+                    # 检查是否包含关键数据
+                    # 如果包含了密度关键词，稍微多等一小会儿确保数据传完，然后结束
+                    if "Density" in chunk or "g/ccm" in chunk:
+                        time.sleep(0.1)  # 等待剩余字节（如有）
+                        if ser_connection.in_waiting > 0:
+                            data += ser_connection.read(ser_connection.in_waiting).decode('utf-8', errors='ignore')
+                        break
+            else:
+                # 短暂休眠，避免CPU占用过高
+                time.sleep(0.05)
         
         # 改进数据完整性检查
         if data.strip():
-            # 打印读取到的原始数据，用于调试
-            # print(f"读取到的数据: {data}")
             return data
         else:
             return ""
@@ -118,15 +67,20 @@ def read_serial_data(port, baudrate=9600, bytesize=8, stopbits=serial.STOPBITS_O
 def extract_density_value(data):
     """
     从串口数据中提取密度值（如1.329）
+    优先提取最后一次出现的密度值，以应对缓冲区积压旧数据的情况
     :param data: 串口读取的原始数据字符串
     :return: 提取到的密度值（浮点数），提取失败返回None
     """
-    primary = re.search(r'(?mi)^\s*Density\s*:\s*([+-]?\d+(?:\.\d+)?)', data)
-    if primary:
+    # 策略1: 匹配 Density : 1.329
+    # 使用 findall 并取最后一个匹配项，确保获取最新数据
+    primary_matches = re.findall(r'(?mi)^\s*Density\s*:\s*([+-]?\d+(?:\.\d+)?)', data)
+    if primary_matches:
         try:
-            return float(primary.group(1))
+            return float(primary_matches[-1])
         except ValueError:
-            return None
+            pass  # 继续尝试备选策略
+            
+    # 策略2: 匹配 1.329 g/ccm
     fallback = re.findall(r'(?mi)^\s*(?!Ref\.)[^\n]*\b([+-]?\d+(?:\.\d+)?)\s*g\s*/\s*ccm\b', data)
     if fallback:
         try:
@@ -562,7 +516,7 @@ def write_to_csv(value, filename="density_data.csv", header=["密度值(g/ccm)"]
 class DensityDetectGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("密度检测系统")
+        self.root.title(f"密度检测系统 {VERSION}")
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
         
@@ -679,7 +633,7 @@ class DensityDetectGUI:
         
         # 尝试设置窗口透明度（如果支持）
         try:
-            self.root.attributes("-alpha", 0.98)
+            self.root.attributes("-alpha", 1)
         except:
             pass
         
@@ -720,12 +674,82 @@ class DensityDetectGUI:
         self.detect_thread = None
         self.auto_mode = False  # 全自动模式标志
         self.test_count_var = tk.IntVar(value=5)
+        self.ser_connection = None  # 持久化串口连接对象
         
         # 创建界面组件
         self.create_widgets()
         
         # 初始化时读取Excel文件
         self.load_excel_file()
+        
+        # 注册退出时的清理函数
+        import atexit
+        atexit.register(self.close_serial_connection)
+        
+    def close_serial_connection(self):
+        """关闭串口连接"""
+        if self.ser_connection and self.ser_connection.is_open:
+            try:
+                self.ser_connection.close()
+                self.log_message("串口连接已关闭")
+            except Exception as e:
+                print(f"关闭串口失败: {e}")
+            finally:
+                self.ser_connection = None
+
+    def open_serial_connection(self):
+        """打开或重置串口连接"""
+        # 如果已经打开，先关闭
+        self.close_serial_connection()
+        
+        try:
+            # 转换参数类型
+            port = self.serial_port_var.get()
+            baudrate = self.baudrate_var.get()
+            bytesize = self.bytesize_var.get()
+            
+            stopbits_val = self.stopbits_var.get()
+            if stopbits_val == 1:
+                stopbits = serial.STOPBITS_ONE
+            elif stopbits_val == 1.5:
+                stopbits = serial.STOPBITS_ONE_POINT_FIVE
+            elif stopbits_val == 2:
+                stopbits = serial.STOPBITS_TWO
+            else:
+                stopbits = serial.STOPBITS_ONE
+                
+            parity_str = self.parity_var.get()
+            if parity_str == 'NONE':
+                parity = serial.PARITY_NONE
+            elif parity_str == 'ODD':
+                parity = serial.PARITY_ODD
+            elif parity_str == 'EVEN':
+                parity = serial.PARITY_EVEN
+            else:
+                parity = serial.PARITY_NONE
+                
+            timeout = 3 # 默认超时
+
+            # 初始化串口
+            self.ser_connection = serial.Serial(
+                port=port,
+                baudrate=baudrate,
+                parity=parity,
+                stopbits=stopbits,
+                bytesize=bytesize,
+                timeout=timeout,
+                xonxoff=False,
+                rtscts=False,
+                dsrdtr=False,
+                writeTimeout=2
+            )
+            self.log_message(f"串口 {port} 已成功打开")
+            return True
+            
+        except Exception as e:
+            self.log_message(f"打开串口失败: {e}")
+            messagebox.showerror("串口错误", f"无法打开串口 {self.serial_port_var.get()}: {e}")
+            return False
     
     def create_widgets(self):
         # 创建主框架
@@ -743,7 +767,7 @@ class DensityDetectGUI:
         title_frame = ttk.Frame(main_frame)
         title_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
         
-        self.title_label = ttk.Label(title_frame, text="密度检测系统", font=(("Segoe UI", 16, "bold")),
+        self.title_label = ttk.Label(title_frame, text=f"密度检测系统 {VERSION}", font=(("Segoe UI", 16, "bold")),
                                     foreground=self.mac_colors["text"])
         self.title_label.pack(side=tk.LEFT, padx=5)
         
@@ -1015,6 +1039,11 @@ class DensityDetectGUI:
         if self.current_product_index >= len(self.product_info_list):
             messagebox.showinfo("提示", "所有产品都已检测完成")
             return
+
+        # 确保串口已连接
+        if self.ser_connection is None or not self.ser_connection.is_open:
+            if not self.open_serial_connection():
+                return
         
         # 获取当前产品信息
         current_product = self.product_info_list[self.current_product_index]
@@ -1062,8 +1091,11 @@ class DensityDetectGUI:
             # 更新内存中的配置
             self.max_attempts = self.max_attempts_var.get()
             
-            messagebox.showinfo("提示", "串口配置已保存")
-            self.log_message("串口配置已保存到文件")
+            # 重新打开串口以应用新配置
+            if self.open_serial_connection():
+                messagebox.showinfo("提示", "串口配置已保存并重新连接")
+                self.log_message("串口配置已保存到文件并重新连接")
+            
         except Exception as e:
             messagebox.showerror("错误", f"保存配置失败: {e}")
             self.log_message(f"保存配置失败: {e}")
@@ -1114,11 +1146,7 @@ class DensityDetectGUI:
                         break
                     
                     raw_data = read_serial_data(
-                        self.serial_port,
-                        baudrate=self.baudrate,
-                        bytesize=self.bytesize,
-                        stopbits=self.stopbits,
-                        parity=self.parity,
+                        self.ser_connection,
                         timeout=3  # 延长单次读取超时时间
                     )
                     if raw_data:

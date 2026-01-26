@@ -12,6 +12,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo.
-echo Build finished. Output: "%~dp0dist\Density2excel.exe"
+echo.\necho Build finished. Output: "%~dp0dist\Density2excel\Density2excel.exe"
 pause
