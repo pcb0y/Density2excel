@@ -1070,6 +1070,7 @@ class DensityDetectGUI:
         self.pause_button.config(state=tk.NORMAL, text="暂停检测")
         self.next_button.config(state=tk.DISABLED)
         self.reset_button.config(state=tk.DISABLED)
+        self.retest_button.config(state=tk.DISABLED)
         
         # 重置检测数据
         self.density_values = []
@@ -1263,6 +1264,11 @@ class DensityDetectGUI:
         self.pause_button.config(state=tk.DISABLED, text="暂停检测")
         self.next_button.config(state=tk.NORMAL)
         self.reset_button.config(state=tk.NORMAL)
+        
+        if self.result_table.selection():
+            self.retest_button.config(state=tk.NORMAL)
+        else:
+            self.retest_button.config(state=tk.DISABLED)
         
         self.status_label.config(text="已停止")
         self.log_message("检测已停止")
@@ -1515,6 +1521,11 @@ class DensityDetectGUI:
         self.pause_button.config(state=tk.DISABLED, text="暂停检测")
         self.next_button.config(state=tk.NORMAL)
         self.reset_button.config(state=tk.NORMAL)
+        
+        if self.result_table.selection():
+            self.retest_button.config(state=tk.NORMAL)
+        else:
+            self.retest_button.config(state=tk.DISABLED)
         
         current_product = self.product_info_list[self.current_product_index]
         product_model = current_product["产品型号"]
