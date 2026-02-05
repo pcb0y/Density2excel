@@ -12,7 +12,7 @@ import threading
 import configparser
 
 
-VERSION = "v1.2"
+VERSION = "v1.3"
 
 
 def read_serial_data(ser_connection, timeout=3):
@@ -843,6 +843,9 @@ class DensityDetectGUI:
         
         self.reset_button = ttk.Button(control_frame, text="重置", command=self.reset_detection)
         self.reset_button.pack(side=tk.LEFT, padx=5)
+
+        self.retest_button = ttk.Button(control_frame, text="复测选中", command=self.retest_selected, state=tk.DISABLED)
+        self.retest_button.pack(side=tk.LEFT, padx=5)
         
         # 全自动模式复选框
         self.auto_mode_var = tk.BooleanVar(value=False)
@@ -950,6 +953,9 @@ class DensityDetectGUI:
         self.result_table.heading("密度值", text="密度值 (g/ccm)")
         self.result_table.column("检测次数", width=80, anchor=tk.CENTER)
         self.result_table.column("密度值", width=120, anchor=tk.CENTER)
+        
+        # 绑定结果选择事件
+        self.result_table.bind("<<TreeviewSelect>>", self.on_result_select)
         
         # 滚动条
         result_scrollbar = ttk.Scrollbar(result_table_frame, orient=tk.VERTICAL, command=self.result_table.yview)
@@ -1123,7 +1129,8 @@ class DensityDetectGUI:
             self.parity = self.parity_var.get()
             
             # 开始5次密度检测
-            density_values = []
+            # 使用self.density_values存储，以便支持复测功能
+            # density_values = []  # 删除局部变量
             detect_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             total = self.test_count_var.get()
@@ -1193,11 +1200,11 @@ class DensityDetectGUI:
                         time.sleep(wait_time)
                 
                 if density is not None:
-                    density_values.append(density)
+                    self.density_values.append(density)
                     # 更新检测结果表格
                     self.root.after(0, self.add_detection_result, detect_num, density)
                 else:
-                    density_values.append(None)
+                    self.density_values.append(None)
                     self.root.after(0, self.add_detection_result, detect_num, "失败")
                     self.log_message(f"第 {detect_num} 次检测 - 失败")
                 
@@ -1208,7 +1215,7 @@ class DensityDetectGUI:
             # 如果检测完成
             if self.detecting:
                 # 计算平均值（仅包含有效数值）
-                valid_densities = [d for d in density_values if d is not None]
+                valid_densities = [d for d in self.density_values if d is not None]
                 average_density = sum(valid_densities) / len(valid_densities) if valid_densities else None
                 
                 # 更新平均值显示
@@ -1222,11 +1229,11 @@ class DensityDetectGUI:
                     "机台号": machine_id,
                     "产品型号": product_model,
                     "班次": shift,
-                    "密度1": density_values[0] if len(density_values) > 0 else None,
-                    "密度2": density_values[1] if len(density_values) > 1 else None,
-                    "密度3": density_values[2] if len(density_values) > 2 else None,
-                    "密度4": density_values[3] if len(density_values) > 3 else None,
-                    "密度5": density_values[4] if len(density_values) > 4 else None,
+                    "密度1": self.density_values[0] if len(self.density_values) > 0 else None,
+                    "密度2": self.density_values[1] if len(self.density_values) > 1 else None,
+                    "密度3": self.density_values[2] if len(self.density_values) > 2 else None,
+                    "密度4": self.density_values[3] if len(self.density_values) > 3 else None,
+                    "密度5": self.density_values[4] if len(self.density_values) > 4 else None,
                     "平均值": round(average_density, 4) if average_density is not None else None
                 }
                 
@@ -1318,6 +1325,180 @@ class DensityDetectGUI:
         """Treeview选择变化时的处理"""
         # 当选择变化时，确保选中行的样式正确
         pass
+        
+    def on_result_select(self, event):
+        """检测结果选择变化时的处理"""
+        # 如果正在检测中，禁用复测按钮
+        if self.detecting and not self.paused:
+            self.retest_button.config(state=tk.DISABLED)
+            return
+            
+        selection = self.result_table.selection()
+        if selection:
+            self.retest_button.config(state=tk.NORMAL)
+        else:
+            self.retest_button.config(state=tk.DISABLED)
+    
+    def retest_selected(self):
+        """复测选中的结果"""
+        selection = self.result_table.selection()
+        if not selection:
+            return
+            
+        # 获取选中的项
+        item_id = selection[0]
+        item = self.result_table.item(item_id)
+        values = item['values']
+        
+        # 解析检测次数 (例如 "第 1 次" -> 1)
+        try:
+            detect_str = values[0]
+            detect_num = int(detect_str.replace("第 ", "").replace(" 次", ""))
+            index = detect_num - 1
+            
+            # 确认
+            if not messagebox.askyesno("确认复测", f"确定要重新测试第 {detect_num} 次的数据吗？"):
+                return
+                
+            # 准备复测
+            self.retest_index = index
+            self.retest_num = detect_num
+            self.retest_item_id = item_id
+            
+            # 禁用按钮
+            self.retest_button.config(state=tk.DISABLED)
+            self.start_button.config(state=tk.DISABLED)
+            self.stop_button.config(state=tk.DISABLED)
+            self.next_button.config(state=tk.DISABLED)
+            
+            self.log_message(f"准备复测第 {detect_num} 次数据...")
+            self.status_label.config(text=f"复测第{detect_num}次")
+            
+            # 启动复测线程
+            threading.Thread(target=self.run_retest, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"无法解析选中项: {e}")
+
+    def run_retest(self):
+        """执行单次复测流程"""
+        try:
+            # 确保串口已连接
+            if self.ser_connection is None or not self.ser_connection.is_open:
+                if not self.open_serial_connection():
+                    self.root.after(0, lambda: self.status_label.config(text="串口错误"))
+                    self.root.after(0, self.restore_buttons_state)
+                    return
+
+            # 更新串口参数
+            self.serial_port = self.serial_port_var.get()
+            self.baudrate = self.baudrate_var.get()
+            self.bytesize = self.bytesize_var.get()
+            self.stopbits = self.stopbits_var.get()
+            self.parity = self.parity_var.get()
+            
+            self.log_message(f"开始复测第 {self.retest_num} 次...")
+            
+            # 读取串口数据
+            max_attempts = self.max_attempts_var.get()
+            density = None
+            raw_data = ""
+            
+            for attempt in range(max_attempts):
+                raw_data = read_serial_data(
+                    self.ser_connection,
+                    timeout=3
+                )
+                if raw_data:
+                    self.root.after(0, self.update_raw_data, raw_data)
+                    self.log_message(f"复测 - 第 {attempt + 1} 次尝试读取到原始数据")
+                    
+                    density = extract_density_value(raw_data)
+                    if density is not None:
+                        self.log_message(f"复测 - 成功提取密度值: {density} g/ccm")
+                        break
+                    else:
+                        self.log_message(f"复测 - 读取到数据但未找到密度值，重试中...")
+                        time.sleep(0.5)
+                else:
+                    self.log_message(f"复测 - 第 {attempt + 1} 次尝试读取失败，重试中...")
+                    time.sleep(1)
+            
+            # 更新数据
+            if density is not None:
+                # 确保列表长度足够
+                while len(self.density_values) <= self.retest_index:
+                    self.density_values.append(None)
+                    
+                self.density_values[self.retest_index] = density
+                
+                # 更新表格
+                self.root.after(0, self.result_table.item, self.retest_item_id, values=(f"第 {self.retest_num} 次", density))
+                
+                # 重新计算平均值并更新Excel
+                self.update_average_and_excel()
+                
+                self.log_message(f"第 {self.retest_num} 次复测完成，数据已更新")
+                self.root.after(0, lambda: self.status_label.config(text="复测完成"))
+            else:
+                self.log_message(f"第 {self.retest_num} 次复测失败")
+                self.root.after(0, lambda: self.status_label.config(text="复测失败"))
+                self.root.after(0, messagebox.showwarning, "复测失败", "未能获取有效的密度数据")
+            
+        except Exception as e:
+            self.root.after(0, messagebox.showerror, "错误", f"复测过程中发生错误: {str(e)}")
+            self.log_message(f"复测错误: {str(e)}")
+        finally:
+            self.root.after(0, self.restore_buttons_state)
+
+    def restore_buttons_state(self):
+        """恢复按钮状态"""
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.next_button.config(state=tk.NORMAL)
+        # 根据是否有选中项恢复复测按钮
+        if self.result_table.selection():
+            self.retest_button.config(state=tk.NORMAL)
+        else:
+            self.retest_button.config(state=tk.DISABLED)
+            
+    def update_average_and_excel(self):
+        """更新平均值并保存到Excel"""
+        # 计算平均值
+        valid_densities = [d for d in self.density_values if d is not None]
+        average_density = sum(valid_densities) / len(valid_densities) if valid_densities else None
+        
+        # 更新平均值显示
+        avg_str = f"{average_density:.4f}" if average_density is not None else "--"
+        self.root.after(0, self.avg_value_var.set, avg_str)
+        
+        # 准备数据更新Excel
+        if self.current_product_index < len(self.product_info_list):
+            current_product = self.product_info_list[self.current_product_index]
+            product_model = current_product["产品型号"]
+            machine_id = current_product["机台号"]
+            sample_time = current_product["来样时间"]
+            shift = current_product["班次"]
+            
+            detect_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            detect_data = {
+                "来样时间": sample_time,
+                "检测时间": detect_time,
+                "机台号": machine_id,
+                "产品型号": product_model,
+                "班次": shift,
+                "密度1": self.density_values[0] if len(self.density_values) > 0 else None,
+                "密度2": self.density_values[1] if len(self.density_values) > 1 else None,
+                "密度3": self.density_values[2] if len(self.density_values) > 2 else None,
+                "密度4": self.density_values[3] if len(self.density_values) > 3 else None,
+                "密度5": self.density_values[4] if len(self.density_values) > 4 else None,
+                "平均值": round(average_density, 4) if average_density is not None else None
+            }
+            
+            # 更新Excel文件
+            update_excel_with_detection_results(self.excel_filename, product_model, detect_data)
+            self.log_message(f"Excel文件已更新")
     
     def detection_completed(self):
         """
