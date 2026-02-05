@@ -12,7 +12,7 @@ import threading
 import configparser
 
 
-VERSION = "v1.3"
+VERSION = "v1.4"
 
 
 def read_serial_data(ser_connection, timeout=3):
@@ -163,7 +163,13 @@ def read_product_models_from_excel(filename="density_data.xlsx"):
                     "来样时间": row[0] if row[0] else "",
                     "机台号": row[2] if row[2] else "",
                     "产品型号": str(row[3]).strip(),
-                    "班次": row[4] if row[4] else ""
+                    "班次": row[4] if row[4] else "",
+                    "密度1": row[5] if len(row) > 5 and row[5] else "",
+                    "密度2": row[6] if len(row) > 6 and row[6] else "",
+                    "密度3": row[7] if len(row) > 7 and row[7] else "",
+                    "密度4": row[8] if len(row) > 8 and row[8] else "",
+                    "密度5": row[9] if len(row) > 9 and row[9] else "",
+                    "平均值": row[10] if len(row) > 10 and row[10] else ""
                 }
                 product_info_list.append(product_info)
         
@@ -802,20 +808,32 @@ class DensityDetectGUI:
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # 列表控件
-        self.product_list = ttk.Treeview(list_frame, columns=("产品型号", "机台号", "来样时间", "班次"), show="headings")
+        self.product_list = ttk.Treeview(list_frame, columns=("产品型号", "机台号", "来样时间", "班次", "密度1", "密度2", "密度3", "密度4", "密度5", "平均值"), show="headings")
         self.product_list.heading("产品型号", text="产品型号")
         self.product_list.heading("机台号", text="机台号")
         self.product_list.heading("来样时间", text="来样时间")
         self.product_list.heading("班次", text="班次")
+        self.product_list.heading("密度1", text="密度1")
+        self.product_list.heading("密度2", text="密度2")
+        self.product_list.heading("密度3", text="密度3")
+        self.product_list.heading("密度4", text="密度4")
+        self.product_list.heading("密度5", text="密度5")
+        self.product_list.heading("平均值", text="平均值")
         
         # 绑定事件，确保所有行都使用统一的背景色
         self.product_list.bind("<Configure>", self.on_tree_configure)
         self.product_list.bind("<<TreeviewSelect>>", self.on_tree_select)
         
-        self.product_list.column("产品型号", width=150)
-        self.product_list.column("机台号", width=100)
-        self.product_list.column("来样时间", width=150)
-        self.product_list.column("班次", width=100)
+        self.product_list.column("产品型号", width=120)
+        self.product_list.column("机台号", width=80)
+        self.product_list.column("来样时间", width=120)
+        self.product_list.column("班次", width=60)
+        self.product_list.column("密度1", width=60, anchor=tk.CENTER)
+        self.product_list.column("密度2", width=60, anchor=tk.CENTER)
+        self.product_list.column("密度3", width=60, anchor=tk.CENTER)
+        self.product_list.column("密度4", width=60, anchor=tk.CENTER)
+        self.product_list.column("密度5", width=60, anchor=tk.CENTER)
+        self.product_list.column("平均值", width=70, anchor=tk.CENTER)
         
         # 滚动条
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.product_list.yview)
@@ -1024,7 +1042,13 @@ class DensityDetectGUI:
                     info["产品型号"],
                     info["机台号"],
                     info["来样时间"],
-                    info["班次"]
+                    info["班次"],
+                    info.get("密度1", ""),
+                    info.get("密度2", ""),
+                    info.get("密度3", ""),
+                    info.get("密度4", ""),
+                    info.get("密度5", ""),
+                    info.get("平均值", "")
                 ))
             
 
@@ -1045,6 +1069,30 @@ class DensityDetectGUI:
         if not self.product_info_list:
             messagebox.showwarning("警告", "未加载任何产品型号")
             return
+        
+        # 自动跳过已有数据的产品
+        while self.current_product_index < len(self.product_info_list):
+            current_product = self.product_info_list[self.current_product_index]
+            # 判断是否已有数据：检查"平均值"或"密度1"
+            has_data = False
+            if current_product.get("平均值") and str(current_product.get("平均值")).strip():
+                has_data = True
+            elif current_product.get("密度1") and str(current_product.get("密度1")).strip():
+                has_data = True
+                
+            if has_data:
+                self.log_message(f"产品 {current_product['产品型号']} 已有数据，自动跳过")
+                self.current_product_index += 1
+                # 尝试更新列表选中项，提升用户体验
+                try:
+                    children = self.product_list.get_children()
+                    if self.current_product_index < len(children):
+                        self.product_list.selection_set(children[self.current_product_index])
+                        self.product_list.see(children[self.current_product_index])
+                except:
+                    pass
+            else:
+                break
         
         if self.current_product_index >= len(self.product_info_list):
             messagebox.showinfo("提示", "所有产品都已检测完成")
@@ -1204,10 +1252,50 @@ class DensityDetectGUI:
                     self.density_values.append(density)
                     # 更新检测结果表格
                     self.root.after(0, self.add_detection_result, detect_num, density)
+                    
+                    # 实时更新产品列表显示
+                    self.root.after(0, self.update_product_list_realtime, product_model, machine_id, sample_time, shift)
                 else:
                     self.density_values.append(None)
                     self.root.after(0, self.add_detection_result, detect_num, "失败")
                     self.log_message(f"第 {detect_num} 次检测 - 失败")
+                
+                # --- 每次检测后立即保存到Excel ---
+                if self.detecting:
+                    try:
+                        # 计算当前平均值
+                        valid_densities = [d for d in self.density_values if d is not None]
+                        average_density = sum(valid_densities) / len(valid_densities) if valid_densities else None
+                        
+                        # 准备数据
+                        detect_data_temp = {
+                            "来样时间": sample_time,
+                            "检测时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "机台号": machine_id,
+                            "产品型号": product_model,
+                            "班次": shift,
+                            "密度1": self.density_values[0] if len(self.density_values) > 0 else None,
+                            "密度2": self.density_values[1] if len(self.density_values) > 1 else None,
+                            "密度3": self.density_values[2] if len(self.density_values) > 2 else None,
+                            "密度4": self.density_values[3] if len(self.density_values) > 3 else None,
+                            "密度5": self.density_values[4] if len(self.density_values) > 4 else None,
+                            "平均值": round(average_density, 4) if average_density is not None else None
+                        }
+                        
+                        # 更新Excel
+                        update_excel_with_detection_results(self.excel_filename, product_model, detect_data_temp)
+                        
+                        # 同步更新内存
+                        if 0 <= self.current_product_index < len(self.product_info_list):
+                            self.product_info_list[self.current_product_index].update(detect_data_temp)
+                            
+                        # 更新平均值显示
+                        avg_str = f"{average_density:.4f}" if average_density is not None else "--"
+                        self.root.after(0, self.avg_value_var.set, avg_str)
+                        
+                    except Exception as e:
+                        self.log_message(f"保存中间结果失败: {e}")
+                # --------------------------------
                 
                 # 获取到数据后不等待，直接进行下一次检测
                 # # 如果需要等待，可以调整这里的时间间隔
@@ -1242,6 +1330,10 @@ class DensityDetectGUI:
                 update_excel_with_detection_results(self.excel_filename, product_model, detect_data)
                 self.log_message(f"成功更新 {product_model} 的检测结果到Excel文件")
                 
+                # 同步更新内存中的数据
+                if 0 <= self.current_product_index < len(self.product_info_list):
+                    self.product_info_list[self.current_product_index].update(detect_data)
+                
                 # 更新界面状态
                 self.root.after(0, self.detection_completed)
         
@@ -1250,6 +1342,40 @@ class DensityDetectGUI:
             self.root.after(0, self.log_message, f"测试错误: {str(e)}")
             self.root.after(0, self.stop_detection)
     
+    def update_product_list_realtime(self, product_model, machine_id, sample_time, shift):
+        """实时更新产品列表中的当前行数据"""
+        try:
+            # 计算当前平均值
+            valid_densities = [d for d in self.density_values if d is not None]
+            average_density = sum(valid_densities) / len(valid_densities) if valid_densities else None
+            
+            children = self.product_list.get_children()
+            if 0 <= self.current_product_index < len(children):
+                item_id = children[self.current_product_index]
+                
+                # 准备更新的值
+                values = [
+                    product_model,
+                    machine_id,
+                    sample_time,
+                    shift
+                ]
+                
+                # 填充密度值
+                for i in range(5):
+                    if i < len(self.density_values):
+                        val = self.density_values[i]
+                        values.append(val if val is not None else "")
+                    else:
+                        values.append("")
+                
+                # 添加平均值
+                values.append(f"{average_density:.4f}" if average_density is not None else "")
+                
+                self.product_list.item(item_id, values=values)
+        except Exception as e:
+            self.log_message(f"实时更新列表失败: {e}")
+
     def stop_detection(self):
         """停止检测"""
         self.detecting = False
@@ -1329,8 +1455,70 @@ class DensityDetectGUI:
         
     def on_tree_select(self, event):
         """Treeview选择变化时的处理"""
-        # 当选择变化时，确保选中行的样式正确
-        pass
+        # 如果正在检测中，禁止切换
+        if self.detecting:
+            return
+
+        selection = self.product_list.selection()
+        if not selection:
+            return
+            
+        item_id = selection[0]
+        # 找到选中项的索引
+        children = self.product_list.get_children()
+        try:
+            index = children.index(item_id)
+        except ValueError:
+            return
+            
+        # 切换当前产品
+        self.current_product_index = index
+        self.load_current_product_to_ui()
+
+    def load_current_product_to_ui(self):
+        """加载当前选中的产品数据到主界面"""
+        if not self.product_info_list or self.current_product_index >= len(self.product_info_list):
+            return
+            
+        product_info = self.product_info_list[self.current_product_index]
+        product_model = product_info["产品型号"]
+        
+        # 更新提示信息
+        self.prompt_label.config(text=f"当前产品: {product_model} (已选)")
+        self.log_message(f"已切换到产品: {product_model}")
+        
+        # 清空现有结果显示
+        self.clear_detection_results()
+        self.density_values = []
+        
+        # 加载已有数据
+        for i in range(1, 6):
+            key = f"密度{i}"
+            val = product_info.get(key)
+            
+            # 处理数据类型
+            density_val = None
+            if val is not None and str(val).strip():
+                try:
+                    density_val = float(val)
+                except ValueError:
+                    pass
+            
+            self.density_values.append(density_val)
+            
+            # 显示在表格中 (为了方便复测，即使是空值也显示一行)
+            display_val = density_val if density_val is not None else ""
+            self.add_detection_result(i, display_val)
+            
+        # 更新平均值
+        avg = product_info.get("平均值")
+        if avg is not None and str(avg).strip():
+             self.avg_value_var.set(str(avg))
+        else:
+             self.avg_value_var.set("--")
+             
+        # 更新复测按钮状态
+        self.on_result_select(None)
         
     def on_result_select(self, event):
         """检测结果选择变化时的处理"""
@@ -1439,7 +1627,7 @@ class DensityDetectGUI:
                 self.density_values[self.retest_index] = density
                 
                 # 更新表格
-                self.root.after(0, self.result_table.item, self.retest_item_id, values=(f"第 {self.retest_num} 次", density))
+                self.root.after(0, lambda: self.result_table.item(self.retest_item_id, values=(f"第 {self.retest_num} 次", density)))
                 
                 # 重新计算平均值并更新Excel
                 self.update_average_and_excel()
@@ -1505,6 +1693,30 @@ class DensityDetectGUI:
             # 更新Excel文件
             update_excel_with_detection_results(self.excel_filename, product_model, detect_data)
             self.log_message(f"Excel文件已更新")
+            
+            # 同步更新内存中的数据
+            if 0 <= self.current_product_index < len(self.product_info_list):
+                self.product_info_list[self.current_product_index].update(detect_data)
+            
+            # 更新GUI列表显示
+            try:
+                children = self.product_list.get_children()
+                if 0 <= self.current_product_index < len(children):
+                    item_id = children[self.current_product_index]
+                    self.product_list.item(item_id, values=(
+                        product_model,
+                        machine_id,
+                        sample_time,
+                        shift,
+                        detect_data["密度1"] if detect_data["密度1"] is not None else "",
+                        detect_data["密度2"] if detect_data["密度2"] is not None else "",
+                        detect_data["密度3"] if detect_data["密度3"] is not None else "",
+                        detect_data["密度4"] if detect_data["密度4"] is not None else "",
+                        detect_data["密度5"] if detect_data["密度5"] is not None else "",
+                        detect_data["平均值"] if detect_data["平均值"] is not None else ""
+                    ))
+            except Exception as e:
+                self.log_message(f"更新列表显示失败: {e}")
     
     def detection_completed(self):
         """
@@ -1596,6 +1808,29 @@ class DensityDetectGUI:
 
 # 主函数调用
 if __name__ == "__main__":
+    # 单例模式检查 (Windows only)
+    try:
+        import ctypes
+        import sys
+        
+        # 创建一个命名互斥体
+        mutex_name = "Global\\Density2excel_Singleton_Mutex_v1"
+        kernel32 = ctypes.windll.kernel32
+        mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        last_error = kernel32.GetLastError()
+        
+        # 如果互斥体已经存在，说明程序已经在运行
+        if last_error == 183:  # ERROR_ALREADY_EXISTS
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()  # 隐藏主窗口
+            messagebox.showwarning("警告", "程序已经在运行中！\n请不要重复打开。")
+            root.destroy()
+            sys.exit(0)
+    except Exception as e:
+        print(f"单例检查出错: {e}")
+
     # 方式1：实际串口读取（注释掉方式2和3，启用此行）
     # main()
 
