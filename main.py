@@ -12,7 +12,7 @@ import threading
 import configparser
 
 
-VERSION = "v1.1"
+VERSION = "v1.2"
 
 
 def read_serial_data(ser_connection, timeout=3):
@@ -671,6 +671,7 @@ class DensityDetectGUI:
         self.current_product_index = 0
         self.density_values = []
         self.detecting = False
+        self.paused = False  # 暂停状态标志
         self.detect_thread = None
         self.auto_mode = False  # 全自动模式标志
         self.test_count_var = tk.IntVar(value=5)
@@ -833,6 +834,9 @@ class DensityDetectGUI:
         
         self.stop_button = ttk.Button(control_frame, text="停止检测", command=self.stop_detection, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
+        
+        self.pause_button = ttk.Button(control_frame, text="暂停检测", command=self.toggle_pause, state=tk.DISABLED)
+        self.pause_button.pack(side=tk.LEFT, padx=5)
         
         self.next_button = ttk.Button(control_frame, text="下一个产品", command=self.next_product)
         self.next_button.pack(side=tk.LEFT, padx=5)
@@ -1054,8 +1058,10 @@ class DensityDetectGUI:
         
         # 更新界面状态
         self.detecting = True
+        self.paused = False
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
+        self.pause_button.config(state=tk.NORMAL, text="暂停检测")
         self.next_button.config(state=tk.DISABLED)
         self.reset_button.config(state=tk.DISABLED)
         
@@ -1134,6 +1140,15 @@ class DensityDetectGUI:
                 if not self.detecting:
                     break
                 
+                # 检查是否暂停
+                while self.paused and self.detecting:
+                    self.status_label.config(text="已暂停")
+                    time.sleep(0.5)
+                
+                if not self.detecting:
+                    break
+                
+                self.status_label.config(text="检测中")
                 self.log_message(f"开始第 {detect_num} 次检测...")
                 
                 # 读取串口数据，优化重试机制
@@ -1145,6 +1160,14 @@ class DensityDetectGUI:
                     if not self.detecting:
                         break
                     
+                    # 检查是否暂停
+                    while self.paused and self.detecting:
+                        self.status_label.config(text="已暂停")
+                        time.sleep(0.5)
+                        # 暂停结束后恢复状态显示
+                        if not self.paused and self.detecting:
+                             self.status_label.config(text="检测中")
+
                     raw_data = read_serial_data(
                         self.ser_connection,
                         timeout=3  # 延长单次读取超时时间
@@ -1230,6 +1253,7 @@ class DensityDetectGUI:
         # 更新界面状态
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
+        self.pause_button.config(state=tk.DISABLED, text="暂停检测")
         self.next_button.config(state=tk.NORMAL)
         self.reset_button.config(state=tk.NORMAL)
         
@@ -1259,6 +1283,21 @@ class DensityDetectGUI:
         self.clear_detection_results()
         self.log_message("检测已重置")
     
+    def toggle_pause(self):
+        """切换暂停/继续状态"""
+        if not self.detecting:
+            return
+            
+        self.paused = not self.paused
+        if self.paused:
+            self.pause_button.config(text="继续检测")
+            self.log_message("检测已暂停")
+            self.status_label.config(text="已暂停")
+        else:
+            self.pause_button.config(text="暂停检测")
+            self.log_message("检测已继续")
+            self.status_label.config(text="检测中")
+            
     def toggle_auto_mode(self):
         """切换全自动模式"""
         self.auto_mode = self.auto_mode_var.get()
@@ -1292,6 +1331,7 @@ class DensityDetectGUI:
         # 更新界面状态
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
+        self.pause_button.config(state=tk.DISABLED, text="暂停检测")
         self.next_button.config(state=tk.NORMAL)
         self.reset_button.config(state=tk.NORMAL)
         
