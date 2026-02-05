@@ -1,0 +1,44 @@
+[33mcommit d466bf62b3ca32af8b528978322e11fc03796c85[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:25:15 2026 +0800
+
+    Update_v1.3_with_retest_feature
+
+[33mcommit 316914f5c4a0422b771986fa80287e9940b02ab1[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 11:19:15 2026 +0800
+
+    update_v1.2
+[33mcommit 28d924dd912fb8c4e163a8b79a5866cd590e8a16[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:30:53 2026 +0800
+
+    Refine_retest_logic_and_state_management
+
+[33mcommit d466bf62b3ca32af8b528978322e11fc03796c85[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:25:15 2026 +0800
+
+    Update_v1.3_with_retest_feature
+[33mcommit 28d924dd912fb8c4e163a8b79a5866cd590e8a16[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:30:53 2026 +0800
+
+    Refine_retest_logic_and_state_management
+
+[33mcommit d466bf62b3ca32af8b528978322e11fc03796c85[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:25:15 2026 +0800
+
+    Update_v1.3_with_retest_feature
+[33mcommit d73355c3a194df0ec061bf54e763dc754447370d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 15:15:36 2026 +0800
+
+    更新版本至v1.4：增加单例模式、列表显示测试结果、实时保存Excel功能
+
+[33mcommit 28d924dd912fb8c4e163a8b79a5866cd590e8a16[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: pcb0y <pcb0y@163.com>
+Date:   Thu Feb 5 14:30:53 2026 +0800
+
+    Refine_retest_logic_and_state_management

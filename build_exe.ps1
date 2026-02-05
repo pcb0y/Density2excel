@@ -23,4 +23,7 @@ Copy-Item "dist\Density2excel\_internal\vcruntime140_1.dll" "dist\Density2excel\
 Copy-Item "dist\Density2excel\_internal\msvcp140.dll" "dist\Density2excel\" -Force
 Copy-Item "dist\Density2excel\_internal\msvcp140_1.dll" "dist\Density2excel\" -Force
 
+# 复制图标文件到主目录
+Copy-Item "icon.ico" "dist\Density2excel\" -Force
+
 Write-Output "Build finished: dist\Density2excel\Density2excel.exe"

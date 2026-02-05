@@ -526,6 +526,13 @@ class DensityDetectGUI:
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
         
+        # 设置窗口图标
+        try:
+            if os.path.exists("icon.ico"):
+                self.root.iconbitmap("icon.ico")
+        except Exception:
+            pass
+            
         # 设置mac风格主题
         self.style = ttk.Style()
         # 尝试使用clam主题，这是最接近mac风格的内置主题
